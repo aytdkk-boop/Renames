@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>TOTP Коды доступа</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#000; color:#fff; font-family:'Segoe UI',Arial,sans-serif;
+    min-height:100vh; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center; padding:20px;
+  }
+  h1 { font-size:36px; margin-bottom:40px; letter-spacing:2px; }
+  .label { font-size:14px; color:#aaa; margin-bottom:6px; }
+  .field {
+    width:320px; padding:12px 16px; background:#111; border:1px solid #333;
+    border-radius:8px; color:#fff; font-size:16px; text-align:center; outline:none;
+  }
+  .field:focus { border-color:#4a9eff; }
+  .section { margin-bottom:30px; }
+  .code-box {
+    width:320px; padding:20px; background:#111; border:1px solid #333;
+    border-radius:8px; font-size:40px; font-weight:bold; letter-spacing:8px;
+    color:#4a9eff; font-family:'Courier New',monospace; min-height:70px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .timer { margin-top:10px; font-size:14px; color:#888; height:20px; }
+  .btn {
+    margin-top:15px; padding:10px 24px; background:#4a9eff; color:#000;
+    border:none; border-radius:6px; font-size:14px; font-weight:bold; cursor:pointer;
+  }
+  .btn:hover { background:#6bb0ff; }
+  .error { color:#ff5555; font-size:12px; margin-top:8px; height:16px; }
+</style>
+</head>
+<body>
+<h1>TOTP</h1>
+
+<div class="section">
+  <div class="label">Секретный ключ</div>
+  <input id="secretInput" class="field" type="password" placeholder="Введите ключ TOTP" autocomplete="off">
+  <div id="error" class="error"></div>
+</div>
+
+<div class="section">
+  <div class="label">Одноразовый код</div>
+  <div id="codeBox" class="code-box">------</div>
+  <div id="timer" class="timer"></div>
+  <button id="copyBtn" class="btn">Скопировать</button>
+</div>
+
+<script>
+const secretInput = document.getElementById('secretInput');
+const codeBox = document.getElementById('codeBox');
+const timerEl = document.getElementById('timer');
+const copyBtn = document.getElementById('copyBtn');
+const errorEl = document.getElementById('error');
+
+let currentCode = '';
+let secondsLeft = 0;
+let intervalId = null;
+let secret = '';
+
+async function fetchCode() {
+  try {
+    const res = await fetch('/api/code', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({secret})
+    });
+    const data = await res.json();
+    if (data.error) {
+      codeBox.textContent = '------';
+      errorEl.textContent = data.error;
+      currentCode = '';
+      return false;
+    }
+    currentCode = data.code;
+    codeBox.textContent = data.code;
+    secondsLeft = data.seconds_left;
+    errorEl.textContent = '';
+    return true;
+  } catch (e) {
+    errorEl.textContent = 'Ошибка сети';
+    return false;
+  }
+}
+
+function start(sec) {
+  secret = sec;
+  if (intervalId) clearInterval(intervalId);
+  fetchCode().then(ok => {
+    if (!ok) return;
+    intervalId = setInterval(async () => {
+      secondsLeft--;
+      if (secondsLeft <= 0) {
+        await fetchCode();
+      }
+      timerEl.textContent = `Новый код через ${secondsLeft} с`;
+    }, 1000);
+  });
+}
+
+function stop() {
+  if (intervalId) clearInterval(intervalId);
+  intervalId = null;
+  codeBox.textContent = '------';
+  timerEl.textContent = '';
+  currentCode = '';
+}
+
+secretInput.addEventListener('input', () => {
+  const val = secretInput.value.trim();
+  if (val.length === 0) { stop(); errorEl.textContent=''; return; }
+  if (val.length < 8) { stop(); errorEl.textContent='Ключ слишком короткий'; return; }
+  start(val);
+});
+
+copyBtn.addEventListener('click', async () => {
+  if (!currentCode) return;
+  try {
+    await navigator.clipboard.writeText(currentCode);
+    const old = copyBtn.textContent;
+    copyBtn.textContent = 'Скопировано!';
+    setTimeout(() => copyBtn.textContent = old, 1500);
+  } catch(e) { alert('Ошибка копирования'); }
+});
+</script>
+</body>
+</html>
